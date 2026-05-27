@@ -1,7 +1,7 @@
 streamlit
 groq
 pymupdf
-chromadb
+chromadb==0.4.24
 sentence-transformers
 torch
 torchvision
