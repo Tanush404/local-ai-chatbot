@@ -1,13 +1,10 @@
 import streamlit as st
 from groq import Groq
-import fitz  # pymupdf
-import chromadb
+import fitz
+import numpy as np
 from sentence_transformers import SentenceTransformer
 
-# ---- SETUP ----
-client = chromadb.Client()
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
-collection = client.get_or_create_collection("docs")
 
 def load_pdf(file):
     doc = fitz.open(stream=file.read(), filetype="pdf")
@@ -18,58 +15,42 @@ def load_pdf(file):
 
 def chunk_text(text, chunk_size=500):
     words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size):
-        chunks.append(" ".join(words[i:i+chunk_size]))
-    return chunks
+    return [" ".join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
-def add_to_db(chunks):
-    embeddings = embedder.encode(chunks).tolist()
-    collection.add(
-        documents=chunks,
-        embeddings=embeddings,
-        ids=[f"chunk_{i}" for i in range(len(chunks))]
-    )
+def search_chunks(query, chunks, embeddings, n=3):
+    query_emb = embedder.encode([query])
+    scores = np.dot(embeddings, query_emb.T).flatten()
+    top_indices = scores.argsort()[-n:][::-1]
+    return [chunks[i] for i in top_indices]
 
-def search_db(query, n=3):
-    query_embedding = embedder.encode([query]).tolist()
-    results = collection.query(query_embeddings=query_embedding, n_results=n)
-    return results["documents"][0]
-
-# ---- UI ----
 st.set_page_config(page_title="Local AI Assistant", page_icon="🤖")
 st.title("🤖 My Local AI Chatbot")
 st.caption("Powered by Groq — Fast & Free")
 
 with st.sidebar:
     st.header("⚙️ Settings")
-
-    groq_api_key = st.text_input("Groq API Key", type="password", placeholder="Enter your Groq API key")
-
+    groq_api_key = st.text_input("Groq API Key", type="password")
     model_options = ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"]
     selected_model = st.selectbox("Choose a model", model_options)
-
-    system_prompt = st.text_area(
-        "System Prompt",
-        value="You are a helpful assistant.",
-    )
-
+    system_prompt = st.text_area("System Prompt", value="You are a helpful assistant.")
     st.divider()
     st.header("📄 Upload a Document")
     uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 
-    if uploaded_file:
-        with st.spinner("Reading and indexing PDF..."):
+    if uploaded_file and "chunks" not in st.session_state:
+        with st.spinner("Indexing PDF..."):
             text = load_pdf(uploaded_file)
-            chunks = chunk_text(text)
-            add_to_db(chunks)
-        st.success(f"✅ Indexed {len(chunks)} chunks!")
+            st.session_state.chunks = chunk_text(text)
+            st.session_state.embeddings = embedder.encode(st.session_state.chunks)
+        st.success(f"✅ Indexed {len(st.session_state.chunks)} chunks!")
 
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
+        if "chunks" in st.session_state:
+            del st.session_state.chunks
+            del st.session_state.embeddings
         st.rerun()
 
-# ---- CHAT ----
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -89,19 +70,12 @@ if user_input := st.chat_input("Ask me anything..."):
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_response = ""
-
         groq_client = Groq(api_key=groq_api_key)
 
-        if uploaded_file:
-            relevant_chunks = search_db(user_input)
-            context = "\n\n".join(relevant_chunks)
-            rag_prompt = f"""Use the following context to answer the question.
-If the answer is not in the context, say you don't know.
-
-Context:
-{context}
-
-Question: {user_input}"""
+        if "chunks" in st.session_state:
+            relevant = search_chunks(user_input, st.session_state.chunks, st.session_state.embeddings)
+            context = "\n\n".join(relevant)
+            rag_prompt = f"Use this context to answer:\n\n{context}\n\nQuestion: {user_input}"
             messages_to_send = [{"role": "system", "content": system_prompt}] + \
                                st.session_state.messages[:-1] + \
                                [{"role": "user", "content": rag_prompt}]
