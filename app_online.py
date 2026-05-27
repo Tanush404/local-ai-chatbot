@@ -46,7 +46,7 @@ with st.sidebar:
 
     groq_api_key = st.text_input("Groq API Key", type="password", placeholder="Enter your Groq API key")
 
-    model_options = ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"]
+    model_options = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
     selected_model = st.selectbox("Choose a model", model_options)
 
     system_prompt = st.text_area(
