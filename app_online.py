@@ -1,3 +1,4 @@
+import uuid
 import streamlit as st
 from groq import Groq
 import fitz
@@ -48,6 +49,16 @@ with st.sidebar:
             del st.session_state.chunks
             del st.session_state.embeddings
         st.rerun()
+
+# Get user ID from URL params
+params = st.query_params
+if "user_id" not in params:
+    import uuid
+    new_id = str(uuid.uuid4())
+    st.query_params["user_id"] = new_id
+    st.session_state.user_id = new_id
+else:
+    st.session_state.user_id = params["user_id"]
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
