@@ -101,7 +101,7 @@ with st.sidebar:
     st.header("⚙️ Settings")
     st.caption(f"Your ID: `{st.session_state.user_id[:8]}...`")
 
-    model_options = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+    model_options = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.6-27b"]
     selected_model = st.selectbox("Choose a model", model_options)
     system_prompt = st.text_area("System Prompt", value="You are a helpful assistant.")
 
