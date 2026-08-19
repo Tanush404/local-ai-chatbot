@@ -8,22 +8,45 @@ import uuid
 
 # ---- SETUP ----
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
-supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+try:
+    supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+except Exception:
+    supabase = None
 
 # ---- SUPABASE FUNCTIONS ----
+# All DB calls are wrapped so a Supabase outage (e.g. a paused free-tier
+# project, bad credentials, or a network blip) degrades to "chat works,
+# history just isn't persisted" instead of crashing the whole app.
 def save_message(user_id, role, content):
-    supabase.table("messages").insert({
-        "user_id": user_id,
-        "role": role,
-        "content": content
-    }).execute()
+    if supabase is None:
+        return
+    try:
+        supabase.table("messages").insert({
+            "user_id": user_id,
+            "role": role,
+            "content": content
+        }).execute()
+    except Exception as e:
+        st.session_state.db_error = str(e)
 
 def load_messages(user_id):
-    result = supabase.table("messages").select("role, content").eq("user_id", user_id).order("id").execute()
-    return [{"role": r["role"], "content": r["content"]} for r in result.data]
+    if supabase is None:
+        return []
+    try:
+        result = supabase.table("messages").select("role, content").eq("user_id", user_id).order("id").execute()
+        return [{"role": r["role"], "content": r["content"]} for r in result.data]
+    except Exception as e:
+        st.session_state.db_error = str(e)
+        return []
 
 def clear_messages(user_id):
-    supabase.table("messages").delete().eq("user_id", user_id).execute()
+    if supabase is None:
+        return
+    try:
+        supabase.table("messages").delete().eq("user_id", user_id).execute()
+    except Exception as e:
+        st.session_state.db_error = str(e)
 
 # ---- PDF UTILS ----
 def load_pdf(file):
@@ -57,8 +80,19 @@ if "user_id" not in params:
 else:
     st.session_state.user_id = params["user_id"]
 
+if "db_error" not in st.session_state:
+    st.session_state.db_error = None
+
 if "messages" not in st.session_state:
     st.session_state.messages = load_messages(st.session_state.user_id)
+
+if supabase is None or st.session_state.db_error:
+    st.warning(
+        "⚠️ Chat history storage is unavailable right now (Supabase may be "
+        "paused or unreachable). You can still chat — messages just won't "
+        "be saved for this session.",
+        icon="⚠️"
+    )
 
 if "pdf_store" not in st.session_state:
     st.session_state.pdf_store = {}
